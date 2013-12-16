@@ -4,7 +4,7 @@ import static
 
 from django.conf import settings
 from django.core.handlers.wsgi import WSGIHandler
-from django.core.handlers.base import get_path_info
+#from django.core.handlers.base import get_path_info
 from django.contrib.staticfiles.handlers import StaticFilesHandler as DebugHandler
 
 try:
@@ -14,6 +14,23 @@ except ImportError:     # Python 2
 from django.contrib.staticfiles import utils
 
 
+try:
+	from django.core.handlers.base import get_path_info
+except ImportError:     # django < 1.5
+	import six
+	
+def get_path_info(environ):
+	"""
+	Returns the HTTP request's PATH_INFO as a unicode string.
+	"""
+	path_info = environ.get('PATH_INFO', str('/'))
+	# Under Python 3, strings in environ are decoded with ISO-8859-1;
+	# re-encode to recover the original bytestring provided by the web server.
+	if six.PY3:
+		path_info = path_info.encode('iso-8859-1')
+		# It'd be better to implement URI-to-IRI decoding, see #19508.
+ 	return path_info.decode('utf-8')
+ 
 class Cling(WSGIHandler):
     """WSGI middleware that intercepts calls to the static files
     directory, as defined by the STATIC_URL setting, and serves those files.
@@ -42,7 +59,7 @@ class Cling(WSGIHandler):
 
     def _transpose_environ(self, environ):
         """Translates a given environ to static.Cling's expectations."""
-        environ['PATH_INFO'] = environ['PATH_INFO'][len(self.base_url[2]) - 1:]
+        environ['PATH_INFO'] = environ['PATH_INFO'][len(self.base_url) + 1:]
         return environ
 
     def _should_handle(self, path):
@@ -65,21 +82,3 @@ class Cling(WSGIHandler):
         # Serve static requests in debug mode from StaticFilesHandler
         else:
             return self.debug_cling(environ, start_response)
-
-
-class MediaCling(Cling):
-
-    def __init__(self, application, base_dir=None):
-        super(MediaCling, self).__init__(application, base_dir=base_dir)
-        # override callable attribute with method
-        self.debug_cling = self._debug_cling
-
-    def _debug_cling(self, environ, start_response):
-        environ = self._transpose_environ(environ)
-        return self.cling(environ, start_response)
-
-    def get_base_dir(self):
-        return settings.MEDIA_ROOT
-
-    def get_base_url(self):
-        return settings.MEDIA_URL
